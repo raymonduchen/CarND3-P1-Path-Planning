@@ -163,6 +163,7 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+
 int main() {
   uWS::Hub h;
 
@@ -200,8 +201,18 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+
+  //start in lane 1;    || lane 0, lane 1, lane 2
+  int lane = 1;
+
+  //have a reference velocity to target
+  double ref_vel = 49.5;  //mph  Trial 1,2
+
+  h.onMessage([&ref_vel, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &lane](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
+
+  // h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  //                    uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
@@ -244,7 +255,28 @@ int main() {
 
 
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-          	msgJson["next_x"] = next_x_vals;
+          	// Trial 1 : go straight ~ 50 MPH
+            // double dist_inc = 0.5;  //space between 2 points (m)
+            // for (int i = 0; i < 50; i++)
+            // {
+            //   next_x_vals.push_back(car_x + (dist_inc*i)*cos(deg2rad(car_yaw)));
+            //   next_y_vals.push_back(car_y + (dist_inc*i)*sin(deg2rad(car_yaw)));
+            // }
+
+            // Trial 2 : go along the road
+            double dist_inc = 0.3;  //space between 2 points (m)
+            for (int i = 0; i < 50; i++)
+            {
+              
+              double next_s = car_s + (i+1)*dist_inc; // if using i the starting point of car is the same as of map
+              double next_d = 6; // at center of three lane (ane width = 4)
+              vector<double> xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+              next_x_vals.push_back(xy[0]);
+              next_y_vals.push_back(xy[1]);
+            }
+
+            msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
           	auto msg = "42[\"control\","+ msgJson.dump()+"]";
