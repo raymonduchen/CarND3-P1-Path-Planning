@@ -92,7 +92,7 @@ The prediction is implemented in `main.cpp` line 270, 284-287, 306-310.
 
 Prediction of ego vehicle assumes ego vehicle goes the previous path, i.e. `car_s` is set as `end_path_s` in `main.cpp` line 270.
 
-Prediction of other vehicle should also consider the previous mentioned time goes by. Therefore, besides `s` value obtained from `sensor_fusion`, distance traveled in the elapsed time should also be included, i.e. add other vehicle velocity times elapsed time in `main.cpp` line 284-287 and 306~310. 
+Prediction of other vehicle should also consider the previous mentioned time goes by. Therefore, besides `s` value obtained from `sensor_fusion`, distance traveled in the elapsed time should also be included, i.e. add other vehicle velocity times elapsed time in `main.cpp` line 284-287 and 306-310. 
 
 
 ## Trajectory generation
