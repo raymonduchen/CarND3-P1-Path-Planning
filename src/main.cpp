@@ -165,6 +165,23 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+int getLane(float d)
+{
+  if (d >=0 && d < 4)
+    return 0;
+  else if  (d >=4 && d < 8)
+    return 1;
+  else if  (d >=8 && d < 12)
+    return 2;
+  else
+    return -1;
+}
+
+double getSpeed(double vx, double vy)
+{
+  return sqrt(vx*vx + vy*vy);
+}
+
 
 int main() {
   uWS::Hub h;
@@ -208,8 +225,8 @@ int main() {
   int lane = 1;
 
   //have a reference velocity to target
-  //double ref_vel = 49.5;  //mph  Trial 1,2
   double ref_vel = 0;  //mph   Trial 3
+
 
   h.onMessage([&ref_vel, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &lane](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
@@ -248,9 +265,9 @@ int main() {
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
 
-            // Used for Trial 3 ----
-            int prev_size = previous_path_x.size(); //help for transition
-            
+
+            // Helpful for lane change --------------------------------
+            int prev_size = previous_path_x.size(); 
 
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
@@ -262,61 +279,173 @@ int main() {
 
 
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-            // Trial 3 : use spline method  (Problems to be solved  1 : cold start, 2 : collide front car)
-            // Create a list of widely spaced (x,y) waypoints, evenly spaced at 30m
-            // later we will interpolate these way points with a spline and fill it in with more points
-            
-            // Prevent Collision using sensor_fusion data
+            // Prevent Collision using sensor_fusion data ---------------------------------------
             // Sensor fusion[i] : i-th car data
-
             if (prev_size > 0)
             {
-              car_s = end_path_s;
+              car_s = end_path_s; //current ego position s == s value of previous path end point
             }
+
+            const double MAX_VALUE = 1e17;
+            const double MIN_VALUE = -1e17;
             bool too_close = false;
+            double current_ahead_s = MAX_VALUE;
+            double current_behind_s = MIN_VALUE;
+            bool left_available = true; 
+            double left_ahead_s = MAX_VALUE;
+            double left_behind_s = MIN_VALUE;
+            bool right_available = true;
+            double right_ahead_s = MAX_VALUE;
+            double right_behind_s = MIN_VALUE;
 
             //find ref_v to use
             for (int i = 0; i < sensor_fusion.size(); i++)
             {
-              //car is in my lane
+              //other car is in my lane ? check d of other car
               float d = sensor_fusion[i][6];
-              if (d < (2+4*lane+2) && d > (2+4*lane-2) )
-              {
-                double vx = sensor_fusion[i][3];
-                double vy = sensor_fusion[i][4];
-                double check_speed = sqrt(vx*vx + vy*vy);
-                double check_car_s = sensor_fusion[i][5];
+              double vx = sensor_fusion[i][3];
+              double vy = sensor_fusion[i][4];
+              double check_speed = sqrt(vx*vx + vy*vy);
+              double check_car_s = sensor_fusion[i][5];
+              check_car_s += ((double)prev_size*0.02*check_speed);
 
-                check_car_s += ((double)prev_size*0.02*check_speed); //?? if using previous points can project s value outwards in time
-                //check s values greater than mine and s gap
+              int other_car_lane = getLane (d); 
+
+              //check if too close in current lane?
+              if (lane == other_car_lane)
+              {
+                if ((check_car_s > car_s) && (current_ahead_s > check_car_s))
+                  current_ahead_s = check_car_s;   
+
+                if ((check_car_s < car_s) && (check_car_s > current_behind_s))
+                  current_behind_s = check_car_s;
+
                 if ((check_car_s > car_s) && ((check_car_s-car_s) < 30))
                 {
-                  // Do some logic here, lower reference velocity so we don't crash into  the car in front of us, could 
-                  // also flag to try to change lanes.
-                  //ref_vel = 29.5; //mph
                   too_close = true;
-                  if (lane > 0)
-                  {
-                    lane = 0;
-                  }
+                  // std::cout<< "Too Close !" << std::endl;
                 }
-
               }
+              
+              //check left lane available?
+              if (lane == 0)
+                left_available = false;
+              else if ( lane - other_car_lane == 1) 
+              {
+                if ((check_car_s > car_s) && (left_ahead_s > check_car_s))
+                  left_ahead_s = check_car_s;   
 
+                if ((check_car_s < car_s) && (check_car_s > left_behind_s))
+                  left_behind_s = check_car_s;
+
+                if ((check_car_s < car_s + 30) && (check_car_s > car_s - 20))  
+                  left_available = false;
+              }
+              
+              //check right lane available?
+              if (lane == 2)
+                right_available = false;
+              else if (other_car_lane - lane == 1)  
+              {
+                if ((check_car_s > car_s) && (right_ahead_s > check_car_s)) 
+                  right_ahead_s = check_car_s;   
+
+                if ((check_car_s < car_s) && (check_car_s > right_behind_s))
+                  right_behind_s = check_car_s;
+
+                if ((check_car_s < car_s + 30) && (check_car_s > car_s - 20))  
+                  right_available = false;
+              }
             }
 
-            //Solving cold start problem (too large acceleration at beginning) by setting too_close flag
-            // and incrementally change velocity using the following code
             if (too_close)
             {
-              ref_vel -= 0.224; // 0.224 ~ 5 m/s
+              if (right_available && left_available)  // left and right lane available, transit lane which has farer ahead car
+              {
+                if (left_ahead_s > right_ahead_s)
+                {
+                  lane--;
+                  ref_vel -= 0.112;
+                  // std::cout <<"Left  Turn !" << std::endl;
+                } 
+                else
+                {
+                  lane++;
+                  ref_vel -= 0.112;
+                  // std::cout <<"Right  Turn !" << std::endl;
+                }                
+              } 
+              else if (right_available) //only right lane available
+              {
+                lane++;
+                ref_vel -= 0.112;
+                // std::cout <<"Right Turn !" << std::endl;
+
+              } 
+              else if (left_available)  //only left lane available
+              {
+                lane--;
+                ref_vel -= 0.112;
+                // std::cout <<"Left  Turn !" << std::endl;
+              }
+              else  // both left and right lane unavailable, speed down
+              {
+                ref_vel -= 0.224; 
+                // std::cout << "Speed Down" << std::endl;
+              }
             }
-            else if (ref_vel < 49.5)
+            else 
             {
-              ref_vel += 0.224;
+              // If not reach speed limit, speed up. Also, try to keep center lane if appropriate.
+              if (ref_vel < 49.5)
+              {
+                ref_vel += 0.224; // 0.224 ~ 5 m/s
+                //std::cout << "Speed Up" << std::endl;
+              }
+
+              if (lane == 0 && right_available && (right_ahead_s - current_ahead_s > 30))
+              {
+                lane++;
+                ref_vel -= 0.112;
+                // std::cout <<"Right Turn (Keep Center Lane) !" << std::endl;
+              }
+
+              if (lane == 2 && left_available && (left_ahead_s - current_ahead_s > 30))  
+              {
+                lane--;
+                ref_vel -= 0.112;
+                // std::cout <<"Left Turn (Keep Center Lane) !" << std::endl;
+              }
             }
+            
+
+            // Show Status -------------
+            // std::cout << "Current Lane " << lane ;
+            // if (left_available || right_available)
+            // {
+            //   if (left_available)
+            //     std::cout << " L Available ";
+
+            //   if (right_available)
+            //     std::cout << " R Available ";
+              
+            //   if (left_available && right_available)
+            //   {
+            //     if (left_ahead_s > right_ahead_s)
+            //       std::cout << " L First";
+            //     else
+            //       std::cout << " R First";
+            //   }
+            // } 
+            // else
+            //   std::cout << " Lane Change Unavailable";
+            // std::cout<<std::endl;
+
+            // std::cout << left_ahead_s - car_s<< ", " << current_ahead_s - car_s << ", "<< right_ahead_s - car_s<< std::endl;
+            // std::cout << left_behind_s - car_s << ", " << current_behind_s - car_s << ", "<< right_behind_s - car_s<< std::endl;
 
 
+            // Spline trajectory generation --------------------------------------------------------------
             vector<double> ptsx;
             vector<double> ptsy;
 
@@ -341,6 +470,7 @@ int main() {
               ptsx.push_back(car_x);
               ptsy.push_back(prev_car_y);
               ptsy.push_back(car_y);
+
             }
             // use the previous path's end point as starting reference
             else
@@ -359,6 +489,7 @@ int main() {
 
               ptsy.push_back(ref_y_prev);
               ptsy.push_back(ref_y);
+
             }
 
             //In Frenet add evenly 30m spaced points ahead of the starting reference
@@ -408,7 +539,7 @@ int main() {
             // Fill up the rest of our path planner after filling it with previous points, here we will always output 50 points
             for (int i = 1; i <= 50 - previous_path_x.size(); i++)
             {
-              double N = (target_dist/(0.02*ref_vel/2.24)); //2.24   MPH <-> m/s
+              double N = (target_dist/(0.02*ref_vel/2.24)); //2.24   m/s <-> MPH 
               double x_point = x_add_on + (target_x)/N;
               double y_point = s(x_point);
 
@@ -427,7 +558,6 @@ int main() {
               next_x_vals.push_back(x_point);
               next_y_vals.push_back(y_point);
             }
-
 
             msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;

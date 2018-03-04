@@ -1,13 +1,29 @@
-# CarND-Path-Planning-Project
-Self-Driving Car Engineer Nanodegree Program
-   
-### Simulator.
-You can download the Term3 Simulator which contains the Path Planning Project from the [releases tab (https://github.com/udacity/self-driving-car-sim/releases).
+# CarND3-P1 Path Planning
 
-### Goals
+## Description
+
+**This my 1st project result of Udacity self-driving car nanodegree (CarND) term 3. It's required to implement path planning of self-driving car based on behavior planning, trajectory planning and prediction of all vehicles. A vehicle simulator is provided to validate performance of path planning.**
+
+**The following demonstrates vehicle moving in simulator based on designed path planning :** 
+   
+![alt text][image1]
+
+* Udacity self-driving car nanodegree (CarND) :
+
+  https://www.udacity.com/course/self-driving-car-engineer-nanodegree--nd013
+  
+* Udacity self-driving car nanodegree term 3 simulator :
+
+  https://github.com/udacity/self-driving-car-sim/releases/
+
+[//]: # (Image References)
+[image1]: ./images/path_planning.gif
+
+
+## Goals
 In this project your goal is to safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit. You will be provided the car's localization and sensor fusion data, there is also a sparse map list of waypoints around the highway. The car should try to go as close as possible to the 50 MPH speed limit, which means passing slower traffic when possible, note that other cars will try to change lanes too. The car should avoid hitting other cars at all cost as well as driving inside of the marked road lanes at all times, unless going from one lane to another. The car should be able to make one complete loop around the 6946m highway. Since the car is trying to go 50 MPH, it should take a little over 5 minutes to complete 1 loop. Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 10 m/s^3.
 
-#### The map of the highway is in data/highway_map.txt
+### The map of the highway is in data/highway_map.txt
 Each waypoint in the list contains  [x,y,s,dx,dy] values. x and y are the waypoint's map coordinate position, the s value is the distance along the road to get to that waypoint in meters, the dx and dy values define the unit normal vector pointing outward of the highway loop.
 
 The highway's waypoints loop around so the frenet s value, distance along the road, goes from 0 to 6945.554.
@@ -21,7 +37,7 @@ The highway's waypoints loop around so the frenet s value, distance along the ro
 
 Here is the data provided from the Simulator to the C++ Program
 
-#### Main car's localization Data (No Noise)
+### Main car's localization Data (No Noise)
 
 ["x"] The car's x position in map coordinates
 
@@ -35,7 +51,7 @@ Here is the data provided from the Simulator to the C++ Program
 
 ["speed"] The car's speed in MPH
 
-#### Previous path data given to the Planner
+### Previous path data given to the Planner
 
 //Note: Return the previous list but with processed points removed, can be a nice tool to show how far along
 the path has processed since last time. 
@@ -44,15 +60,56 @@ the path has processed since last time.
 
 ["previous_path_y"] The previous list of y points previously given to the simulator
 
-#### Previous path's end s and d values 
+### Previous path's end s and d values 
 
 ["end_path_s"] The previous list's last point's frenet s value
 
 ["end_path_d"] The previous list's last point's frenet d value
 
-#### Sensor Fusion Data, a list of all other car's attributes on the same side of the road. (No Noise)
+### Sensor Fusion Data, a list of all other car's attributes on the same side of the road. (No Noise)
 
 ["sensor_fusion"] A 2d vector of cars and then that car's [car's unique ID, car's x position in map coordinates, car's y position in map coordinates, car's x velocity in m/s, car's y velocity in m/s, car's s position in frenet coordinates, car's d position in frenet coordinates. 
+
+
+## Behavior planner
+
+The behavior planner is implemented in `main.cpp` line 312~419. If ego vehicle gets too close to ahead vehicle, it will try to change lane if nearby lane is available to make a safe change, or else it will keep lane. 
+
+In lane changing, it will change to the one with farer ahead free space if there's more than one lane available or else change to the only one available. In lane keeping, it will decrease speed to prevent collision.
+
+In the case ego vehicle is not too close to ahead vehicle, it will accelerate to reach speed limit and try to make lane change to keep center lane if center lane ahead free space is farer than current lane above 30 mile. The 30 mile constraint prevents frequent lane changing if there's ahead vehicles in both lane moving side by side.
+
+The center lane keeping strategy comes from the idea of more opportunity to change lane and overtake other vehicle compared to inner/outer lane. 
+
+
+How I estimated availability of safe lane change is based on relative `s` value of ego and other vehicle. In a candidate lane for lane changing, both nearest ahead and behind vehicles relative to ego vehicle in Frenet coordinate are estimated using ego vehicle data and `sensor_fusion` data.
+
+In candidate lane, if nearest ahead vehicle is above 30 mile and nearest behind vehicle is above 20 mile relative to ego vehicle location, that lane is estimated having enough space for a safe lane changing and lane changing available flags are set (`left_available`, `right_available`).
+
+## Prediction
+
+The prediction is implemented in `main.cpp` line 270, 284~287, 306~310. 
+
+Prediction of ego vehicle assumes ego vehicle goes the previous path, i.e. `car_s` is set as `end_path_s` in `main.cpp` line 270.
+
+Prediction of other vehicle should also consider the previous mentioned time goes by. Therefore, besides `s` value obtained from `sensor_fusion`, distance traveled in the elapsed time should also be included, i.e. add other vehicle velocity times elapsed time in `main.cpp` line 284~287 and 306~310. 
+
+
+## Trajectory generation
+
+After all behaviors are determined, the trajectory generation is based on spline using 5 anchor points. In general case, the first 2 points are based on last 2 end points of previous path. If there's not enough previous path points, use current ego pose to extrapolate a previous point.
+
+The last 3 points are 30 miles between each other in `s` value starting from current ego `s` value `car_s` + 30 miles, i.e. `car_s+30`, `car_s+60`, and `car_s+90`. `d` value is determined by the `lane` choice from behavior strategy. As time goes by, `lane` value may be changed based on behavior planner and a corresponding lane changing trajectory will be generated in trajectory generation.
+
+All above 5 anchor points will be used to generate a spline function. 50 way points of trajectory are generated by specify a series of equal difference distance `x` values according to how fast we want to drive and then refer spline function to find out `y` values. After all way points are generated, they are sent back to simulator to control ego vehicle.
+
+The trajectory generation is implemented in `main.cpp` line 449~560. 
+
+
+## Reflection
+
+Further improvement can be adressed on path prediction of other vehicle based on a series of location, velocity and acceleration. Also, finite state machine can be introduced to make a sophisticated behavior.
+
 
 ## Details
 
@@ -63,6 +120,7 @@ the path has processed since last time.
 ## Tips
 
 A really helpful resource for doing this project and creating smooth trajectories was using http://kluge.in-chemnitz.de/opensource/spline/, the spline function is in a single hearder file is really easy to use.
+
 
 ---
 
@@ -86,55 +144,3 @@ A really helpful resource for doing this project and creating smooth trajectorie
     cd uWebSockets
     git checkout e94b6e1
     ```
-
-## Editor Settings
-
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
-
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
-
-## Code Style
-
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
-
-## Project Instructions and Rubric
-
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
-
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
-
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
-
